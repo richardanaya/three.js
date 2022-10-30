@@ -351,6 +351,7 @@
 		"webaudio_visualizer"
 	],
 	"webxr": [
+		"webxr_ar_anchors",
 		"webxr_ar_cones",
 		"webxr_ar_dragging",
 		"webxr_ar_hittest",
