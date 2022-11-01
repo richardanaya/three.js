@@ -25029,6 +25029,9 @@ class WebXRManager extends EventDispatcher {
 		const controllers = [];
 		const controllerInputSources = [];
 
+		const anchors = new Set();
+		const anchorPoses = new Map();
+
 		//
 
 		const cameraL = new PerspectiveCamera();
@@ -25586,6 +25589,60 @@ class WebXRManager extends EventDispatcher {
 
 		};
 
+		this.createAnchor = async function ( position, rotation, persistent ) {
+
+			if ( xrFrame ) {
+
+				const anchorPose = new XRRigidTransform( position, rotation );
+				const anchor = await xrFrame.createAnchor( anchorPose, this.getReferenceSpace() );
+				if ( persistent ) {
+
+					return await anchor.requestPersistentHandle();
+
+				}
+
+			} else {
+
+				throw new Error( 'XRFrame not available.' );
+
+			}
+
+		};
+
+		this.restoreAnchor = async function ( uuid ) {
+
+			if ( session ) {
+
+				await session.restorePersistentAnchor( uuid );
+
+			} else {
+
+				throw new Error( 'XRSession not available.' );
+
+			}
+
+		};
+
+		this.deleteAnchor = async function ( uuid ) {
+
+			if ( session ) {
+
+				await session.deletePersistentAnchor( uuid );
+
+			} else {
+
+				throw new Error( 'XRSession not available.' );
+
+			}
+
+		};
+
+		this.getAnchors = function () {
+
+			return anchors;
+
+		};
+
 		// Animation Loop
 
 		let onAnimationFrameCallback = null;
@@ -25694,7 +25751,96 @@ class WebXRManager extends EventDispatcher {
 
 			if ( onAnimationFrameCallback ) onAnimationFrameCallback( time, frame );
 
-			xrFrame = null;
+			if ( frame.trackedAnchors ) {
+
+				scope.dispatchEvent( { type: 'anchorsdetected', data: frame.trackedAnchors } );
+
+				let anchorsToRemove = null;
+
+				for ( const anchor of anchors ) {
+
+					if ( ! frame.trackedAnchors.has( anchor ) ) {
+
+						if ( anchorsToRemove === null ) {
+
+							anchorsToRemove = [];
+
+						}
+
+						anchorsToRemove.push( anchor );
+
+					}
+
+				}
+
+				if ( anchorsToRemove !== null ) {
+
+					for ( const anchor of anchorsToRemove ) {
+
+						anchors.delete( anchor );
+						scope.dispatchEvent( { type: 'anchorremoved', data: anchor } );
+
+					}
+
+				}
+
+				for ( const anchor of frame.trackedAnchors ) {
+
+					if ( ! anchors.has( anchor ) ) {
+
+						anchors.add( anchor );
+						scope.dispatchEvent( { type: 'anchoradded', data: anchor } );
+
+					}
+
+				}
+
+				const xrSpace = customReferenceSpace || referenceSpace;
+
+				for ( const anchor of anchors ) {
+
+					const knownPose = anchorPoses.get( anchor );
+
+					const anchorPose = frame.getPose( anchor.anchorSpace, xrSpace );
+
+					if ( anchorPose ) {
+
+						if ( knownPose === undefined ) {
+
+							anchorPoses.set( anchor, anchorPose );
+							scope.dispatchEvent( { type: 'anchorupdated', data: anchor } );
+
+						} else {
+
+							const position = anchorPose.transform.position;
+							const orientation = anchorPose.transform.orientation;
+
+							const knownPosition = knownPose.transform.position;
+							const knownOrientation = knownPose.transform.orientation;
+
+							if ( position.x !== knownPosition.x || position.y !== knownPosition.y || position.z !== knownPosition.z ||
+								orientation.x !== knownOrientation.x || orientation.y !== knownOrientation.y || orientation.z !== knownOrientation.z || orientation.w !== knownOrientation.w ) {
+
+								anchorPoses.set( anchor, anchorPose );
+								scope.dispatchEvent( { type: 'anchorposechanged', data: { anchor, pose: anchorPose } } );
+
+							}
+
+						}
+
+					} else {
+
+						if ( knownPose !== undefined ) {
+
+							scope.dispatchEvent( { type: 'anchorposechanged', data: { anchor, pose: anchorPose } } );
+
+						}
+
+					}
+
+				}
+
+			}
 
 		}
 
