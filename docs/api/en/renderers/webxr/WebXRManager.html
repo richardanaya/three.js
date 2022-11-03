@@ -37,6 +37,36 @@
 
 		<h2>Methods</h2>
 
+		<h3>[method:Promise createAnchor]( position, rotation )</h3>
+		<p>
+		[page:Vector3 position] — The position of the anchor. <br />
+		[page:Quaternion rotation] — The rotation of the anchor. <br />
+		[page:Boolean persistent] — Whether the anchor should be persistent or not. Default is `false`.<br /><br />
+
+		Create an anchor point for WebXR to track the location of in the real world.
+		</p>
+
+		<h3>[method:Promise createPersistentAnchor]( position, rotation )</h3>
+		<p>
+		[page:Vector3 position] — The position of the anchor. <br />
+		[page:Quaternion rotation] — The rotation of the anchor. <br />
+		[page:Boolean persistent] — Whether the anchor should be persistent or not. Default is `false`.<br /><br />
+
+		Create an anchor point for WebXR to track the location of in the real world.  The anchor is persistent, this function will also return UUID string handle that can be used to restore the anchor in future XR sessions.
+		</p>
+
+		<h3>[method:Promise deleteAnchor]( uuid )</h3>
+		<p>
+		[page:String uuid] — The UUID of the anchor to delete. <br /><br />
+		
+		Delete a persistent anchor point.
+		</p>
+
+		<h3>[method:Set getAnchors]()</h3>
+		<p>
+		Returns the set of anchors detected by WebXR.
+		</p>
+
 		<h3>[method:ArrayCamera getCamera]()</h3>
 		<p>
 		Returns an instance of [page:ArrayCamera] which represents the XR camera of the active XR session.
@@ -95,6 +125,13 @@
 		<h3>[method:XRSession getSession]()</h3>
 		<p>
 		Returns the `XRSession` object which allows a more fine-grained management of active WebXR sessions on application level.
+		</p>
+
+		<h3>[method:Promise restoreAnchor]( uuid )</h3>
+		<p>
+		[page:String uuid] — The UUID of the anchor to restore. <br /><br />
+		
+		Restore a persistent anchor point.
 		</p>
 
 		<h3>[method:undefined setFoveation]( [param:Float foveation] )</h3>
