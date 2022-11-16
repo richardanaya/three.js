@@ -5109,8 +5109,8 @@ class Object3D extends EventDispatcher {
 		this.animations = [];
 		this.userData = {};
 	}
-	onBeforeRender() {}
-	onAfterRender() {}
+	onBeforeRender( /* renderer, scene, camera, geometry, material, group */) {}
+	onAfterRender( /* renderer, scene, camera, geometry, material, group */) {}
 	applyMatrix4(matrix) {
 		if (this.matrixAutoUpdate) this.updateMatrix();
 		this.matrix.premultiply(matrix);
@@ -5316,7 +5316,7 @@ class Object3D extends EventDispatcher {
 		const e = this.matrixWorld.elements;
 		return target.set(e[8], e[9], e[10]).normalize();
 	}
-	raycast() {}
+	raycast( /* raycaster, intersects */) {}
 	traverse(callback) {
 		callback(this);
 		const children = this.children;
@@ -5838,9 +5838,9 @@ class Material extends EventDispatcher {
 		}
 		this._alphaTest = value;
 	}
-	onBuild() {}
-	onBeforeRender() {}
-	onBeforeCompile() {}
+	onBuild( /* shaderobject, renderer */) {}
+	onBeforeRender( /* renderer, scene, camera, geometry, object, group */) {}
+	onBeforeCompile( /* shaderobject, renderer */) {}
 	customProgramCacheKey() {
 		return this.onBeforeCompile.toString();
 	}
@@ -16261,6 +16261,8 @@ class WebXRManager extends EventDispatcher {
 		let newRenderTarget = null;
 		const controllers = [];
 		const controllerInputSources = [];
+		const anchors = new Set();
+		const anchorPoses = new Map();
 		const planes = new Set();
 		const planesLastChangedTimes = new Map();
 
@@ -16640,6 +16642,46 @@ class WebXRManager extends EventDispatcher {
 				glBaseLayer.fixedFoveation = foveation;
 			}
 		};
+		this.createAnchor = async function (position, rotation) {
+			if (xrFrame) {
+				const anchorPose = new XRRigidTransform(position, rotation);
+				return await xrFrame.createAnchor(anchorPose, this.getReferenceSpace());
+			} else {
+				throw new Error('XRFrame not available.');
+			}
+		};
+		this.createPersistentAnchor = async function (position, rotation) {
+			if (xrFrame) {
+				const anchorPose = new XRRigidTransform(position, rotation);
+				const anchor = await xrFrame.createAnchor(anchorPose, this.getReferenceSpace());
+				try {
+					const handle = await anchor.requestPersistentHandle();
+					return [anchor, handle];
+				} catch (e) {
+					anchor.delete();
+					throw e;
+				}
+			} else {
+				throw new Error('XRFrame not available.');
+			}
+		};
+		this.restoreAnchor = async function (uuid) {
+			if (session) {
+				return await session.restorePersistentAnchor(uuid);
+			} else {
+				throw new Error('XRSession not available.');
+			}
+		};
+		this.deleteAnchor = async function (uuid) {
+			if (session) {
+				await session.deletePersistentAnchor(uuid);
+			} else {
+				throw new Error('XRSession not available.');
+			}
+		};
+		this.getAnchors = function () {
+			return anchors;
+		};
 		this.getPlanes = function () {
 			return planes;
 		};
@@ -16708,6 +16750,78 @@ class WebXRManager extends EventDispatcher {
 				}
 			}
 			if (onAnimationFrameCallback) onAnimationFrameCallback(time, frame);
+			if (frame.trackedAnchors) {
+				let anchorsToRemove = null;
+				for (const anchor of anchors) {
+					if (!frame.trackedAnchors.has(anchor)) {
+						if (anchorsToRemove === null) {
+							anchorsToRemove = [];
+						}
+						anchorsToRemove.push(anchor);
+					}
+				}
+				if (anchorsToRemove !== null) {
+					for (const anchor of anchorsToRemove) {
+						anchors.delete(anchor);
+						scope.dispatchEvent({
+							type: 'anchorremoved',
+							data: anchor
+						});
+					}
+				}
+				for (const anchor of frame.trackedAnchors) {
+					if (!anchors.has(anchor)) {
+						anchors.add(anchor);
+						scope.dispatchEvent({
+							type: 'anchoradded',
+							data: anchor
+						});
+					}
+				}
+				const xrSpace = customReferenceSpace || referenceSpace;
+				for (const anchor of anchors) {
+					const knownPose = anchorPoses.get(anchor);
+					const anchorPose = frame.getPose(anchor.anchorSpace, xrSpace);
+					if (anchorPose) {
+						if (knownPose === undefined) {
+							anchorPoses.set(anchor, anchorPose);
+							scope.dispatchEvent({
+								type: 'anchorupdated',
+								data: anchor
+							});
+						} else {
+							const position = anchorPose.transform.position;
+							const orientation = anchorPose.transform.orientation;
+							const knownPosition = knownPose.transform.position;
+							const knownOrientation = knownPose.transform.orientation;
+							if (position.x !== knownPosition.x || position.y !== knownPosition.y || position.z !== knownPosition.z || orientation.x !== knownOrientation.x || orientation.y !== knownOrientation.y || orientation.z !== knownOrientation.z || orientation.w !== knownOrientation.w) {
+								anchorPoses.set(anchor, anchorPose);
+								scope.dispatchEvent({
+									type: 'anchorposechanged',
+									data: {
+										anchor,
+										pose: anchorPose
+									}
+								});
+							}
+						}
+					} else {
+						if (knownPose !== undefined) {
+							scope.dispatchEvent({
+								type: 'anchorposechanged',
+								data: {
+									anchor,
+									pose: anchorPose
+								}
+							});
+						}
+					}
+				}
+				scope.dispatchEvent({
+					type: 'anchorsdetected',
+					data: frame.trackedAnchors
+				});
+			}
 			if (frame.detectedPlanes) {
 				scope.dispatchEvent({
 					type: 'planesdetected',
@@ -16752,7 +16866,6 @@ class WebXRManager extends EventDispatcher {
 					}
 				}
 			}
-			xrFrame = null;
 		}
 		const animation = new WebGLAnimation();
 		animation.setAnimationLoop(onAnimationFrame);
@@ -18803,7 +18916,8 @@ class FogExp2 {
 	clone() {
 		return new FogExp2(this.color, this.density);
 	}
-	toJSON() {
+	toJSON( /* meta */
+	) {
 		return {
 			type: 'FogExp2',
 			color: this.color.getHex(),
@@ -18823,7 +18937,8 @@ class Fog {
 	clone() {
 		return new Fog(this.color, this.near, this.far);
 	}
-	toJSON() {
+	toJSON( /* meta */
+	) {
 		return {
 			type: 'Fog',
 			color: this.color.getHex(),
@@ -20180,7 +20295,8 @@ class Curve {
 	// Virtual base class method to overwrite and implement in subclasses
 	//	- t [0 .. 1]
 
-	getPoint() {
+	getPoint( /* t, optionalTarget */
+	) {
 		console.warn('THREE.Curve: .getPoint() not implemented.');
 		return null;
 	}
@@ -25051,12 +25167,14 @@ class Interpolant {
 
 	// Template methods for derived classes:
 
-	interpolate_() {
+	interpolate_( /* i1, t0, t, t1 */
+	) {
 		throw new Error('call to abstract method');
 		// implementations shall return this.resultBuffer
 	}
 
-	intervalChanged_() {
+	intervalChanged_( /* i1, t0, t1 */
+	) {
 
 		// empty
 	}
@@ -25916,14 +26034,14 @@ class Loader {
 		this.resourcePath = '';
 		this.requestHeader = {};
 	}
-	load() {}
+	load( /* url, onLoad, onProgress, onError */) {}
 	loadAsync(url, onProgress) {
 		const scope = this;
 		return new Promise(function (resolve, reject) {
 			scope.load(url, resolve, onProgress, reject);
 		});
 	}
-	parse() {}
+	parse( /* data */) {}
 	setCrossOrigin(crossOrigin) {
 		this.crossOrigin = crossOrigin;
 		return this;
